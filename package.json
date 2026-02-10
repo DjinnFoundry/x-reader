@@ -1,0 +1,28 @@
+{
+  "name": "x-reader",
+  "version": "0.1.0",
+  "description": "Read-only Twitter/X CLI — personal fork inspired by Bird CLI",
+  "type": "module",
+  "bin": {
+    "x-reader": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/cli/index.js",
+    "test": "node --test tests/*.test.js",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": ["twitter", "x", "cli", "reader"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
