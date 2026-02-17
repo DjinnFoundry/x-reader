@@ -45,8 +45,8 @@ async function getCookiesFromChrome(): Promise<Cookies | null> {
  * Read cookies from config file (~/.config/x-reader/config.json).
  */
 async function getCookiesFromConfig(): Promise<Cookies | null> {
+  if (!existsSync(CONFIG_FILE)) return null;
   try {
-    if (!existsSync(CONFIG_FILE)) return null;
     const raw = await readFile(CONFIG_FILE, 'utf8');
     const config = JSON.parse(raw);
     if (config.auth_token && config.ct0) {
@@ -58,6 +58,8 @@ async function getCookiesFromConfig(): Promise<Cookies | null> {
     }
     return null;
   } catch {
+    console.error(`⚠️  Config file is corrupted: ${CONFIG_FILE}`);
+    console.error(`   Run \`x-reader setup\` to recreate it.`);
     return null;
   }
 }
@@ -66,9 +68,9 @@ async function getCookiesFromConfig(): Promise<Cookies | null> {
  * Read cookies from Bird CLI's config (for seamless migration).
  */
 async function getCookiesFromBirdConfig(): Promise<Cookies | null> {
+  const birdConfig = join(homedir(), '.config', 'bird', 'config.json');
+  if (!existsSync(birdConfig)) return null;
   try {
-    const birdConfig = join(homedir(), '.config', 'bird', 'config.json');
-    if (!existsSync(birdConfig)) return null;
     const raw = await readFile(birdConfig, 'utf8');
     const config = JSON.parse(raw);
     if (config.auth_token && config.ct0) {
@@ -80,6 +82,7 @@ async function getCookiesFromBirdConfig(): Promise<Cookies | null> {
     }
     return null;
   } catch {
+    console.error(`⚠️  Bird CLI config is corrupted: ${birdConfig}`);
     return null;
   }
 }

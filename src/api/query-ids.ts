@@ -68,8 +68,18 @@ function parseCache(raw: unknown): QueryIdCache | null {
 async function loadCache(path: string): Promise<QueryIdCache | null> {
   try {
     const raw = await readFile(path, 'utf8');
-    return parseCache(JSON.parse(raw));
-  } catch {
+    const parsed = parseCache(JSON.parse(raw));
+    if (!parsed && raw.trim().length > 0) {
+      console.error(`⚠️  Query ID cache is corrupted: ${path}`);
+      console.error(`   Run \`x-reader query-ids --refresh\` to rebuild it.`);
+    }
+    return parsed;
+  } catch (err) {
+    if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
+      return null;
+    }
+    console.error(`⚠️  Failed to read query ID cache: ${path}`);
+    console.error(`   Run \`x-reader query-ids --refresh\` to rebuild it.`);
     return null;
   }
 }
@@ -213,7 +223,10 @@ export async function refreshQueryIds(
   const found = await scanBundles(bundleUrls, wantedOps);
 
   if (found.size === 0) {
-    // Discovery failed — return existing cache if any
+    console.error(
+      `⚠️  Scanned ${bundleUrls.length} bundles but found no query IDs. ` +
+      `X may have changed their bundle structure. Using stale cache if available.`,
+    );
     return getSnapshotInfo();
   }
 
