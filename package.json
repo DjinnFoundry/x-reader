@@ -1,20 +1,58 @@
 {
-  "name": "x-reader",
+  "name": "@djinnfoundry/x-reader",
   "version": "0.1.0",
-  "description": "Read-only Twitter/X CLI — personal fork inspired by Bird CLI",
+  "description": "Read-only Twitter/X CLI. Search tweets, read timelines, bookmarks, and replies from the terminal.",
   "type": "module",
   "bin": {
     "x-reader": "./dist/cli/index.js"
   },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/cli/index.js",
     "test": "node --test tests/*.test.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
-  "keywords": ["twitter", "x", "cli", "reader"],
+  "keywords": [
+    "twitter",
+    "x",
+    "cli",
+    "tweet",
+    "reader",
+    "twitter-api",
+    "twitter-cli",
+    "x-api",
+    "tweet-reader",
+    "twitter-scraper",
+    "bookmarks",
+    "timeline",
+    "search-tweets",
+    "read-only",
+    "terminal",
+    "command-line",
+    "social-media"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DjinnFoundry/x-reader.git"
+  },
+  "homepage": "https://github.com/DjinnFoundry/x-reader#readme",
+  "bugs": {
+    "url": "https://github.com/DjinnFoundry/x-reader/issues"
+  },
+  "author": "DjinnFoundry",
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=20"
   },
