@@ -4,7 +4,7 @@
   "description": "Read-only Twitter/X CLI. Search tweets, read timelines, bookmarks, and replies from the terminal.",
   "type": "module",
   "bin": {
-    "x-reader": "./dist/cli/index.js"
+    "x-reader": "dist/cli/index.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
