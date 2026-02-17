@@ -1,6 +1,6 @@
 # x-reader
 
-[![npm version](https://img.shields.io/npm/v/@djinnfoundry/x-reader)](https://www.npmjs.com/package/@djinnfoundry/x-reader)
+[![npm version](https://img.shields.io/npm/v/x-reader)](https://www.npmjs.com/package/x-reader)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)](https://www.typescriptlang.org/)
@@ -34,7 +34,7 @@
 ### From npm (recommended)
 
 ```bash
-npm install -g @djinnfoundry/x-reader
+npm install -g x-reader
 ```
 
 ### From source
@@ -157,7 +157,7 @@ x-reader bookmarks --all --format json > my-bookmarks.json
 ## Programmatic use
 
 ```typescript
-import { XReaderClient } from '@djinnfoundry/x-reader';
+import { XReaderClient } from 'x-reader';
 
 const client = new XReaderClient({
   cookies: { authToken: '...', ct0: '...' },

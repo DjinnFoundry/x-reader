@@ -1,5 +1,5 @@
 {
-  "name": "@djinnfoundry/x-reader",
+  "name": "x-reader",
   "version": "0.1.0",
   "description": "Read-only Twitter/X CLI. Search tweets, read timelines, bookmarks, and replies from the terminal.",
   "type": "module",
@@ -51,7 +51,7 @@
   },
   "author": "DjinnFoundry",
   "publishConfig": {
-    "access": "public"
+    "registry": "https://registry.npmjs.org/"
   },
   "engines": {
     "node": ">=20"
