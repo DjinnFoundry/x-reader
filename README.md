@@ -199,7 +199,6 @@ src/
 
 - Inspired by [Bird CLI](https://github.com/steipete/bird) by [@steipete](https://x.com/steipete)
 - Uses the same public bearer token as the X web client
-- Query ID discovery mechanism reverse-engineered from Bird v0.8.0
 
 ## License
 
