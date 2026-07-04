@@ -6,6 +6,8 @@
  */
 
 import { randomBytes, randomUUID } from 'crypto';
+import { readFile } from 'fs/promises';
+import { basename } from 'path';
 import type {
   ClientOptions,
   Tweet,
@@ -13,14 +15,23 @@ import type {
   TweetResult,
   User,
   UserResult,
+  PostResult,
+  MediaUploadResult,
 } from './types.js';
-import { BEARER_TOKEN, GRAPHQL_URL, USER_AGENT, DEFAULT_QUERY_IDS } from './constants.js';
+import {
+  BEARER_TOKEN,
+  GRAPHQL_URL,
+  MEDIA_UPLOAD_URL,
+  USER_AGENT,
+  DEFAULT_QUERY_IDS,
+} from './constants.js';
 import { getQueryId, refreshQueryIds } from './query-ids.js';
 import {
   tweetDetailFeatures,
   searchFeatures,
   userTweetsFeatures,
   bookmarksFeatures,
+  createTweetFeatures,
   tweetDetailFieldToggles,
 } from './features.js';
 import {
@@ -504,6 +515,134 @@ export class XReaderClient {
     }
 
     return { success: false, error: lastError || 'Unknown error looking up user' };
+  }
+
+  // ─── Write: media upload ──────────────────────────────────────
+
+  /**
+   * Upload a local image and return its media_id for attaching to a tweet.
+   * Uses the v1.1 simple upload (single request), which is fine for images
+   * up to ~5MB. Not for video/chunked uploads.
+   */
+  async uploadMedia(filePath: string): Promise<MediaUploadResult> {
+    try {
+      const bytes = await readFile(filePath);
+      const form = new FormData();
+      form.append('media', new Blob([bytes]), basename(filePath));
+      form.append('media_category', 'tweet_image');
+
+      // Don't set content-type — let fetch add the multipart boundary.
+      const headers = this.getHeaders();
+      delete headers['content-type'];
+
+      const resp = await this.fetchWithTimeout(MEDIA_UPLOAD_URL, {
+        method: 'POST',
+        headers,
+        body: form,
+      });
+
+      if (!resp.ok) {
+        const body = await resp.text().catch(() => '');
+        return { success: false, error: `Media upload HTTP ${resp.status}: ${body.slice(0, 200)}` };
+      }
+
+      const data = (await resp.json()) as { media_id_string?: string; media_id?: number };
+      const mediaId = data.media_id_string ?? (data.media_id ? String(data.media_id) : undefined);
+      if (!mediaId) {
+        return { success: false, error: 'Media upload returned no media_id' };
+      }
+      return { success: true, mediaId };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  // ─── Write: create tweet / reply ──────────────────────────────
+
+  /**
+   * Post a tweet. Optionally a reply (replyToTweetId) and/or with media.
+   * This is the ONLY write operation in this client.
+   */
+  async createTweet(
+    text: string,
+    options: { replyToTweetId?: string; mediaIds?: string[] } = {},
+  ): Promise<PostResult> {
+    const trimmed = text ?? '';
+    const mediaIds = options.mediaIds ?? [];
+    if (!trimmed.trim() && mediaIds.length === 0) {
+      return { success: false, error: 'Cannot post an empty tweet' };
+    }
+
+    try {
+      return await this.tryWithQueryIds('CreateTweet', [], async (qid) => {
+        const variables: Record<string, unknown> = {
+          tweet_text: trimmed,
+          dark_request: false,
+          media: {
+            media_entities: mediaIds.map((id) => ({ media_id: id, tagged_users: [] })),
+            possibly_sensitive: false,
+          },
+          semantic_annotation_ids: [],
+          disallowed_reply_options: null,
+        };
+        if (options.replyToTweetId) {
+          variables.reply = {
+            in_reply_to_tweet_id: options.replyToTweetId,
+            exclude_reply_user_ids: [],
+          };
+        }
+
+        const url = `${GRAPHQL_URL}/${qid}/CreateTweet`;
+        const resp = await this.fetchWithTimeout(url, {
+          method: 'POST',
+          headers: this.getHeaders(),
+          body: JSON.stringify({ variables, features: createTweetFeatures(), queryId: qid }),
+        });
+
+        if (resp.status === 404) return { result: null, status: 404 };
+        if (!resp.ok) {
+          const body = await resp.text();
+          return { result: null, status: resp.status, error: `HTTP ${resp.status}: ${body.slice(0, 200)}` };
+        }
+
+        const data = await resp.json();
+        if (data.errors?.length) {
+          return { result: null, status: 200, error: data.errors.map((e: any) => e.message).join(', ') };
+        }
+
+        const result = data.data?.create_tweet?.tweet_results?.result;
+        const id: string | undefined = result?.rest_id;
+        if (!id) {
+          return { result: null, status: 200, error: 'CreateTweet returned no tweet id' };
+        }
+        const username: string =
+          result?.core?.user_results?.result?.legacy?.screen_name ??
+          result?.core?.user_results?.result?.core?.screen_name ??
+          'i';
+        const postedText: string | undefined = result?.legacy?.full_text ?? trimmed;
+
+        return {
+          result: {
+            success: true,
+            id,
+            url: `https://x.com/${username}/status/${id}`,
+            text: postedText,
+          } as PostResult,
+          status: 200,
+        };
+      });
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /** Convenience wrapper: reply to a tweet. */
+  async reply(
+    tweetId: string,
+    text: string,
+    options: { mediaIds?: string[] } = {},
+  ): Promise<PostResult> {
+    return this.createTweet(text, { replyToTweetId: tweetId, mediaIds: options.mediaIds });
   }
 
   // ─── Paginated helpers ────────────────────────────────────────

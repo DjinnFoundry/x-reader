@@ -5,7 +5,7 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)](https://www.typescriptlang.org/)
 
-**Read-only Twitter/X CLI** for searching tweets, reading timelines, bookmarks, and replies from the terminal. Inspired by [Bird CLI](https://github.com/steipete/bird).
+**Twitter/X CLI** for searching tweets, reading timelines, bookmarks and replies, and posting replies from the terminal. Inspired by [Bird CLI](https://github.com/steipete/bird).
 
 > Uses your own X/Twitter cookies. One user, one account. No API keys required.
 
@@ -17,6 +17,7 @@
 - **Read** replies to any tweet
 - **Read** your bookmarks (with `--all` for full export)
 - **Look up** user profiles by handle
+- **Reply** to a tweet, optionally attaching images (the only write operation)
 - **JSON output** for piping into other tools (`jq`, scripts, etc.)
 - **Auto-discovers** X's rotating GraphQL query IDs (no manual updates needed)
 - **Zero config** beyond two browser cookies
@@ -24,7 +25,7 @@
 ## Why x-reader?
 
 - No Twitter API keys or developer account needed
-- Read-only by design (no accidental tweets, likes, or follows)
+- Read-focused: the only write operation is `reply` (no likes, retweets, or follows)
 - Works with X's current GraphQL endpoints
 - Lightweight: single dependency (Commander)
 - Scriptable: JSON output for automation and data pipelines
@@ -119,6 +120,15 @@ x-reader replies 1234567890
 x-reader replies https://x.com/user/status/1234567890 --format json
 ```
 
+### Post a reply (write)
+```bash
+x-reader reply 1234567890 "Thanks for sharing!"
+x-reader reply https://x.com/user/status/1234567890 "Here's some context" --media chart.png
+x-reader reply 1234567890 "Done" --format json   # prints the new tweet id/url
+```
+
+`reply` attaches up to 4 images (`--media` is repeatable). It is the only command that writes to your account.
+
 ### Export bookmarks
 ```bash
 x-reader bookmarks
@@ -165,6 +175,13 @@ const client = new XReaderClient({
 
 const result = await client.search('hello world', 10);
 console.log(result.tweets);
+
+// Post a reply (optionally with an uploaded image)
+const up = await client.uploadMedia('chart.png');
+const posted = await client.reply('1234567890', 'Here is the data', {
+  mediaIds: up.mediaId ? [up.mediaId] : [],
+});
+console.log(posted.url);
 ```
 
 ## How it works
@@ -181,7 +198,7 @@ x-reader query-ids --refresh
 ```
 src/
 ├── api/
-│   ├── client.ts      # Main API client (read-only operations)
+│   ├── client.ts      # Main API client (read ops + reply)
 │   ├── constants.ts   # Bearer token, URLs, default query IDs
 │   ├── features.ts    # GraphQL feature flags per operation
 │   ├── parser.ts      # Response parsing (raw JSON -> Tweet/User)

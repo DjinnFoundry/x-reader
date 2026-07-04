@@ -87,6 +87,20 @@ export interface UserResult {
   name?: string;
 }
 
+export interface PostResult {
+  success: boolean;
+  error?: string;
+  id?: string;
+  url?: string;
+  text?: string;
+}
+
+export interface MediaUploadResult {
+  success: boolean;
+  error?: string;
+  mediaId?: string;
+}
+
 export interface QueryIdCache {
   fetchedAt: string;
   ttlMs: number;

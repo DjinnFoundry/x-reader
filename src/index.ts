@@ -1,4 +1,4 @@
-/** x-reader — Read-only Twitter/X API client */
+/** x-reader — Twitter/X API client (read + reply) */
 
 export { XReaderClient } from './api/client.js';
 export type {
@@ -10,6 +10,8 @@ export type {
   TweetResult,
   TweetsResult,
   UserResult,
+  PostResult,
+  MediaUploadResult,
 } from './api/types.js';
 export { resolveCookies } from './utils/auth.js';
 export { formatTweets, formatTweet, extractTweetId } from './utils/format.js';

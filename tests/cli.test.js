@@ -14,10 +14,18 @@ describe('x-reader CLI', () => {
     assert.ok(output.includes('user-tweets'));
     assert.ok(output.includes('bookmarks'));
     assert.ok(output.includes('replies'));
+    assert.ok(output.includes('reply'));
     assert.ok(output.includes('read'));
     assert.ok(output.includes('user-lookup'));
     assert.ok(output.includes('query-ids'));
     assert.ok(output.includes('setup'));
+  });
+
+  it('should show reply help', () => {
+    const output = execSync('x-reader reply --help', { encoding: 'utf8' });
+    assert.ok(output.includes('tweet-id-or-url'));
+    assert.ok(output.includes('text'));
+    assert.ok(output.includes('--media'));
   });
 
   it('should show search help', () => {
@@ -44,10 +52,9 @@ describe('x-reader CLI', () => {
     assert.ok(output.includes('--refresh'));
   });
 
-  it('should NOT have write commands (tweet, like, retweet, follow)', () => {
+  it('should only allow reply as a write command (no like/retweet/follow)', () => {
     const output = execSync('x-reader --help', { encoding: 'utf8' });
-    // These should NOT be present — read-only tool
-    assert.ok(!output.includes('  tweet '));
+    // reply is the only supported write op; these must NOT be present
     assert.ok(!output.includes('  like '));
     assert.ok(!output.includes('  retweet '));
     assert.ok(!output.includes('  follow '));

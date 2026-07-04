@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 
 /**
- * x-reader CLI — Read-only Twitter/X client
+ * x-reader CLI — Twitter/X client (read + reply)
  *
  * Commands:
  *   search <query>              Search tweets
  *   user-tweets <handle>        Get tweets from a user
  *   read <tweet-id-or-url>      Read a single tweet
  *   replies <tweet-id-or-url>   Get replies to a tweet
+ *   reply <tweet> <text>        Post a reply (write operation)
  *   bookmarks                   Get your bookmarks
  *   user-lookup <handle>        Look up user info
  *   query-ids                   Show/refresh cached query IDs
@@ -24,19 +25,24 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { createInterface } from 'readline';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 const program = new Command();
 
 program
   .name('x-reader')
-  .description('Read-only Twitter/X CLI — personal tool for reading tweets')
+  .description('Twitter/X CLI — read tweets and post replies')
   .version(VERSION)
   .option('--auth-token <token>', 'Twitter auth_token cookie')
   .option('--ct0 <token>', 'Twitter ct0 cookie')
   .option('--timeout <ms>', 'Request timeout in milliseconds');
 
-// ─── Helper to create client ──────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────
+
+/** Accumulate repeatable option values (e.g. --media a.png --media b.png). */
+function collect(value: string, previous: string[]): string[] {
+  return previous.concat([value]);
+}
 
 async function createClient(opts: any): Promise<XReaderClient> {
   const { cookies, warnings } = await resolveCookies({
@@ -167,6 +173,54 @@ program
 
     const isJson = cmdOpts.format === 'json';
     console.log(formatTweets(result.tweets ?? [], { json: isJson, emptyMessage: 'No replies found.' }));
+  });
+
+// ─── reply ──────────────────────────────────────────────────────
+
+program
+  .command('reply <tweet-id-or-url> <text>')
+  .description('Post a reply to a tweet (write operation)')
+  .option('--media <path>', 'Attach an image (repeatable, up to 4)', collect, [])
+  .option('--format <type>', 'Output format: json or text', 'text')
+  .action(async (input: string, text: string, cmdOpts: any) => {
+    const opts = program.opts();
+    const client = await createClient(opts);
+
+    let tweetId: string;
+    try { tweetId = extractTweetId(input); } catch (e) {
+      console.error(`❌ ${e instanceof Error ? e.message : e}`);
+      process.exit(1);
+    }
+
+    const mediaPaths: string[] = cmdOpts.media ?? [];
+    if (mediaPaths.length > 4) {
+      console.error('❌ At most 4 images can be attached to a tweet.');
+      process.exit(1);
+    }
+
+    const mediaIds: string[] = [];
+    for (const p of mediaPaths) {
+      console.error(`ℹ️  Uploading ${p}...`);
+      const up = await client.uploadMedia(p);
+      if (!up.success || !up.mediaId) {
+        console.error(`❌ Media upload failed: ${up.error}`);
+        process.exit(1);
+      }
+      mediaIds.push(up.mediaId);
+    }
+
+    const result = await client.reply(tweetId, text, { mediaIds });
+    if (!result.success) {
+      console.error(`❌ Reply failed: ${result.error}`);
+      process.exit(1);
+    }
+
+    if (cmdOpts.format === 'json') {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`✅ Reply posted`);
+      console.log(`🔗 ${result.url}`);
+    }
   });
 
 // ─── bookmarks ──────────────────────────────────────────────────

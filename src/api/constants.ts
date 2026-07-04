@@ -7,6 +7,9 @@ export const BEARER_TOKEN =
 /** GraphQL API base */
 export const GRAPHQL_URL = 'https://x.com/i/api/graphql';
 
+/** Media upload endpoint (v1.1) — still accepts session-cookie auth */
+export const MEDIA_UPLOAD_URL = 'https://upload.x.com/i/media/upload.json';
+
 /** Default User-Agent */
 export const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
@@ -26,6 +29,7 @@ export const DEFAULT_QUERY_IDS: Record<string, string> = {
   HomeLatestTimeline: 'iOEZpOdfekFsxSlPQCQtPg',
   GenericTimelineById: 'uGSr7alSjR9v6QJAIaqSKQ',
   AboutAccountQuery: 'zs_jFPFT78rBpXv9Z3U2YQ',
+  CreateTweet: 'znk9jVDBQAaJvC96UgZ3Jw',
 };
 
 /** Operation names we care about for query ID discovery */
