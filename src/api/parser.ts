@@ -3,7 +3,7 @@
  * Extracted and cleaned up from Bird CLI v0.8.0.
  */
 
-import type { Tweet, TweetMedia, User } from './types.js';
+import type { Tweet, TweetMedia, TweetUrl, User } from './types.js';
 
 // ─── Text extraction ────────────────────────────────────────────
 
@@ -91,6 +91,33 @@ function extractMedia(result: any): TweetMedia[] | undefined {
   return items.length > 0 ? items : undefined;
 }
 
+// ─── URL extraction ─────────────────────────────────────────────
+
+function extractUrls(result: any): TweetUrl[] | undefined {
+  const entities = [
+    ...(result?.legacy?.entities?.urls ?? []),
+    ...(result?.legacy?.extended_entities?.urls ?? []),
+  ];
+  if (!entities.length) return undefined;
+
+  const seen = new Set<string>();
+  const urls: TweetUrl[] = [];
+  for (const u of entities) {
+    const tco = firstNonEmpty(u.url);
+    if (!tco) continue;
+
+    const expanded = firstNonEmpty(u.expanded_url, u.expandedUrl);
+    const display = firstNonEmpty(u.display_url, u.displayUrl);
+    const key = `${tco}\t${expanded ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    urls.push({ tco, expanded, display });
+  }
+
+  return urls.length > 0 ? urls : undefined;
+}
+
 // ─── Article preview ────────────────────────────────────────────
 
 function extractArticlePreview(result: any): { title: string; previewText?: string } | undefined {
@@ -147,6 +174,7 @@ export function parseTweet(result: any, quoteDepth: number = 1, includeRaw = fal
     author: { username, name: name || username },
     authorId: userId,
     quotedTweet,
+    urls: extractUrls(result),
     media: extractMedia(result),
     article: extractArticlePreview(result),
   };

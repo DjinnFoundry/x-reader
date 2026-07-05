@@ -1,5 +1,5 @@
 import { describe, it } from 'node:test';
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import assert from 'assert';
 
 describe('x-reader CLI', () => {
@@ -59,6 +59,15 @@ describe('x-reader CLI', () => {
     assert.ok(!output.includes('  retweet '));
     assert.ok(!output.includes('  follow '));
     assert.ok(!output.includes('  unfollow '));
+  });
+
+  it('should keep reply disabled unless explicitly enabled', () => {
+    const result = spawnSync('x-reader', ['reply', '1234567890', 'test'], {
+      encoding: 'utf8',
+      env: { ...process.env, X_READER_ENABLE_REPLY: '' },
+    });
+    assert.notStrictEqual(result.status, 0);
+    assert.match(result.stderr, /Reply is disabled/);
   });
 });
 

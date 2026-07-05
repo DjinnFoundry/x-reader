@@ -183,6 +183,11 @@ program
   .option('--media <path>', 'Attach an image (repeatable, up to 4)', collect, [])
   .option('--format <type>', 'Output format: json or text', 'text')
   .action(async (input: string, text: string, cmdOpts: any) => {
+    if (process.env.X_READER_ENABLE_REPLY !== 'true') {
+      console.error('❌ Reply is disabled. Set X_READER_ENABLE_REPLY=true only for an approved launch window.');
+      process.exit(1);
+    }
+
     const opts = program.opts();
     const client = await createClient(opts);
 

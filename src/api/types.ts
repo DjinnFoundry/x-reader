@@ -15,9 +15,16 @@ export interface Tweet {
   };
   authorId?: string;
   quotedTweet?: Tweet;
+  urls?: TweetUrl[];
   media?: TweetMedia[];
   article?: { title: string; previewText?: string };
   _raw?: unknown;
+}
+
+export interface TweetUrl {
+  tco: string;
+  expanded?: string;
+  display?: string;
 }
 
 export interface TweetMedia {

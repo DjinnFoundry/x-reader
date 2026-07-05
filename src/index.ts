@@ -3,6 +3,7 @@
 export { XReaderClient } from './api/client.js';
 export type {
   Tweet,
+  TweetUrl,
   TweetMedia,
   User,
   Cookies,
