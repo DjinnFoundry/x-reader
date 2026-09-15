@@ -1,7 +1,7 @@
 {
   "name": "x-reader",
-  "version": "0.2.0",
-  "description": "Twitter/X CLI. Search tweets, read timelines, bookmarks and replies, and post replies from the terminal.",
+  "version": "0.4.0",
+  "description": "Twitter/X CLI. Read X and publish explicitly enabled posts or replies with images or video.",
   "type": "module",
   "bin": {
     "x-reader": "dist/cli/index.js"
@@ -36,7 +36,7 @@
     "bookmarks",
     "timeline",
     "search-tweets",
-    "read-only",
+    "post-tweets",
     "terminal",
     "command-line",
     "social-media"

@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 
 /**
- * x-reader CLI — Twitter/X client (read + reply)
+ * x-reader CLI — Twitter/X client (read + post/reply)
  *
  * Commands:
  *   search <query>              Search tweets
  *   user-tweets <handle>        Get tweets from a user
  *   read <tweet-id-or-url>      Read a single tweet
  *   replies <tweet-id-or-url>   Get replies to a tweet
+ *   post <text>                 Publish an original post (write operation)
  *   reply <tweet> <text>        Post a reply (write operation)
  *   bookmarks                   Get your bookmarks
  *   user-lookup <handle>        Look up user info
@@ -17,21 +18,19 @@
 
 import { Command } from 'commander';
 import { XReaderClient } from '../api/client.js';
-import { resolveCookies } from '../utils/auth.js';
+import { resolveCookies, saveCookiesToConfig } from '../utils/auth.js';
 import { formatTweets, formatTweet, extractTweetId, normalizeUsername } from '../utils/format.js';
 import { getSnapshotInfo, refreshQueryIds } from '../api/query-ids.js';
-import { writeFile, mkdir } from 'fs/promises';
-import { homedir } from 'os';
-import { join } from 'path';
+import { formatMediaUploadProgress, validateMediaFiles } from '../utils/media.js';
 import { createInterface } from 'readline';
 
-const VERSION = '0.2.0';
+const VERSION = '0.4.0';
 
 const program = new Command();
 
 program
   .name('x-reader')
-  .description('Twitter/X CLI — read tweets and post replies')
+  .description('Twitter/X CLI — read tweets and publish posts/replies')
   .version(VERSION)
   .option('--auth-token <token>', 'Twitter auth_token cookie')
   .option('--ct0 <token>', 'Twitter ct0 cookie')
@@ -44,7 +43,24 @@ function collect(value: string, previous: string[]): string[] {
   return previous.concat([value]);
 }
 
-async function createClient(opts: any): Promise<XReaderClient> {
+type WriteOperation = 'Post' | 'Reply';
+
+function requireWritePermission(operation: WriteOperation): void {
+  const specificFlag = operation === 'Post' ? 'X_READER_ENABLE_POST' : 'X_READER_ENABLE_REPLY';
+  if (
+    process.env.X_READER_ENABLE_WRITE === 'true' ||
+    process.env[specificFlag] === 'true'
+  ) {
+    return;
+  }
+  console.error(
+    `❌ ${operation} is disabled. Set ${specificFlag}=true for only this operation, ` +
+      'or X_READER_ENABLE_WRITE=true for an explicitly approved write action.',
+  );
+  process.exit(1);
+}
+
+async function createClient(opts: any, enableWrites = false): Promise<XReaderClient> {
   const { cookies, warnings } = await resolveCookies({
     authToken: opts.authToken,
     ct0: opts.ct0,
@@ -62,7 +78,36 @@ async function createClient(opts: any): Promise<XReaderClient> {
   return new XReaderClient({
     cookies,
     timeoutMs: opts.timeout ? parseInt(opts.timeout, 10) : undefined,
+    enableWrites,
   });
+}
+
+async function requireValidMediaPaths(mediaPaths: string[]): Promise<string[]> {
+  try {
+    await validateMediaFiles(mediaPaths);
+    return mediaPaths;
+  } catch (error) {
+    console.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+}
+
+async function uploadMediaFiles(client: XReaderClient, mediaPaths: string[]): Promise<string[]> {
+  const mediaIds: string[] = [];
+  for (const filePath of mediaPaths) {
+    console.error(`ℹ️  Uploading ${filePath}...`);
+    const result = await client.uploadMedia(filePath, {
+      onProgress: (progress) => {
+        console.error(`ℹ️  ${formatMediaUploadProgress(progress)}`);
+      },
+    });
+    if (!result.success || !result.mediaId) {
+      console.error(`❌ Media upload failed: ${result.error}`);
+      process.exit(1);
+    }
+    mediaIds.push(result.mediaId);
+  }
+  return mediaIds;
 }
 
 // ─── search ─────────────────────────────────────────────────────
@@ -175,21 +220,48 @@ program
     console.log(formatTweets(result.tweets ?? [], { json: isJson, emptyMessage: 'No replies found.' }));
   });
 
+// ─── post ───────────────────────────────────────────────────────
+
+program
+  .command('post <text>')
+  .description('Publish an original post (write operation)')
+  .option('--media <path>', 'Attach up to 4 images or 1 video', collect, [])
+  .option('--format <type>', 'Output format: json or text', 'text')
+  .action(async (text: string, cmdOpts: any) => {
+    requireWritePermission('Post');
+    const mediaPaths = await requireValidMediaPaths(cmdOpts.media ?? []);
+
+    const opts = program.opts();
+    const client = await createClient(opts, true);
+    const mediaIds = await uploadMediaFiles(client, mediaPaths);
+    const result = await client.createTweet(text, { mediaIds });
+
+    if (!result.success) {
+      console.error(`❌ Post failed: ${result.error}`);
+      process.exit(1);
+    }
+
+    if (cmdOpts.format === 'json') {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log('✅ Post published');
+      console.log(`🔗 ${result.url}`);
+    }
+  });
+
 // ─── reply ──────────────────────────────────────────────────────
 
 program
   .command('reply <tweet-id-or-url> <text>')
   .description('Post a reply to a tweet (write operation)')
-  .option('--media <path>', 'Attach an image (repeatable, up to 4)', collect, [])
+  .option('--media <path>', 'Attach up to 4 images or 1 video', collect, [])
   .option('--format <type>', 'Output format: json or text', 'text')
   .action(async (input: string, text: string, cmdOpts: any) => {
-    if (process.env.X_READER_ENABLE_REPLY !== 'true') {
-      console.error('❌ Reply is disabled. Set X_READER_ENABLE_REPLY=true only for an approved launch window.');
-      process.exit(1);
-    }
+    requireWritePermission('Reply');
+    const mediaPaths = await requireValidMediaPaths(cmdOpts.media ?? []);
 
     const opts = program.opts();
-    const client = await createClient(opts);
+    const client = await createClient(opts, true);
 
     let tweetId: string;
     try { tweetId = extractTweetId(input); } catch (e) {
@@ -197,22 +269,7 @@ program
       process.exit(1);
     }
 
-    const mediaPaths: string[] = cmdOpts.media ?? [];
-    if (mediaPaths.length > 4) {
-      console.error('❌ At most 4 images can be attached to a tweet.');
-      process.exit(1);
-    }
-
-    const mediaIds: string[] = [];
-    for (const p of mediaPaths) {
-      console.error(`ℹ️  Uploading ${p}...`);
-      const up = await client.uploadMedia(p);
-      if (!up.success || !up.mediaId) {
-        console.error(`❌ Media upload failed: ${up.error}`);
-        process.exit(1);
-      }
-      mediaIds.push(up.mediaId);
-    }
+    const mediaIds = await uploadMediaFiles(client, mediaPaths);
 
     const result = await client.reply(tweetId, text, { mediaIds });
     if (!result.success) {
@@ -344,15 +401,7 @@ program
       process.exit(1);
     }
 
-    const configDir = join(homedir(), '.config', 'x-reader');
-    const configFile = join(configDir, 'config.json');
-
-    await mkdir(configDir, { recursive: true });
-    await writeFile(
-      configFile,
-      JSON.stringify({ auth_token: authToken.trim(), ct0: ct0.trim() }, null, 2) + '\n',
-      'utf8',
-    );
+    const configFile = await saveCookiesToConfig(authToken.trim(), ct0.trim());
 
     console.log(`✅ Config saved to ${configFile}`);
     console.log('');

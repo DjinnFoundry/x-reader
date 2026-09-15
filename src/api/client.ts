@@ -1,12 +1,12 @@
 /**
- * XReader API Client — Read-only Twitter/X GraphQL client.
+ * XReader API Client — Twitter/X GraphQL client with opt-in writes.
  *
- * Provides: search, user-tweets, tweet-detail, replies, bookmarks, user-lookup.
- * Does NOT provide any write operations (tweet, like, retweet, follow, etc.)
+ * Provides read operations plus explicitly enabled original posts and replies.
+ * Does NOT provide likes, retweets, follows, or destructive operations.
  */
 
 import { randomBytes, randomUUID } from 'crypto';
-import { readFile } from 'fs/promises';
+import { open, readFile, stat } from 'fs/promises';
 import { basename } from 'path';
 import type {
   ClientOptions,
@@ -17,6 +17,7 @@ import type {
   UserResult,
   PostResult,
   MediaUploadResult,
+  MediaUploadOptions,
 } from './types.js';
 import {
   BEARER_TOKEN,
@@ -40,6 +41,26 @@ import {
   extractCursor,
   findTweetInInstructions,
 } from './parser.js';
+import { validateMediaFiles } from '../utils/media.js';
+
+const VIDEO_CHUNK_SIZE_BYTES = 5 * 1024 * 1024;
+const MAX_VIDEO_PROCESSING_POLLS = 20;
+
+interface MediaIdResponse {
+  media_id_string?: string;
+  media_id?: string | number;
+}
+
+interface ProcessingInfo {
+  state?: string;
+  check_after_secs?: number;
+  error?: { message?: string; name?: string };
+}
+
+function mediaIdFrom(response: MediaIdResponse): string | undefined {
+  return response.media_id_string ??
+    (response.media_id !== undefined ? String(response.media_id) : undefined);
+}
 
 export class XReaderClient {
   private authToken: string;
@@ -49,6 +70,7 @@ export class XReaderClient {
   private timeoutMs?: number;
   private quoteDepth: number;
   private clientUuid: string;
+  private writesEnabled: boolean;
 
   constructor(options: ClientOptions) {
     if (!options.cookies.authToken || !options.cookies.ct0) {
@@ -62,6 +84,33 @@ export class XReaderClient {
     this.timeoutMs = options.timeoutMs;
     this.quoteDepth = Math.max(0, Math.floor(options.quoteDepth ?? 1));
     this.clientUuid = randomUUID();
+    this.writesEnabled = options.enableWrites === true;
+  }
+
+  private requireWritePermission(): void {
+    if (!this.writesEnabled) {
+      throw new Error(
+        'Write operations are disabled. Construct XReaderClient with enableWrites: true for an explicitly approved action.',
+      );
+    }
+  }
+
+  private getUploadHeaders(): Record<string, string> {
+    const headers = this.getHeaders();
+    delete headers['content-type'];
+    return headers;
+  }
+
+  private async mediaUploadHttpError(
+    response: Response,
+    stage: string,
+  ): Promise<MediaUploadResult | undefined> {
+    if (response.ok) return undefined;
+    const body = await response.text().catch(() => '');
+    return {
+      success: false,
+      error: `${stage} HTTP ${response.status}: ${body.slice(0, 200)}`,
+    };
   }
 
   // ─── HTTP helpers ───────────────────────────────────────────
@@ -147,6 +196,19 @@ export class XReaderClient {
     }
 
     throw new Error(lastError || `Failed to execute ${operation}`);
+  }
+
+  /** Execute a mutation once; retrying an ambiguous response could duplicate the write. */
+  private async executeMutationOnce<T>(
+    operation: string,
+    doRequest: (queryId: string) => Promise<{ result: T | null; error?: string }>,
+  ): Promise<T> {
+    const [queryId] = await this.getQueryIds(operation);
+    if (!queryId) throw new Error(`No query ID available for ${operation}`);
+
+    const { result, error } = await doRequest(queryId);
+    if (result !== null) return result;
+    throw new Error(error || `Failed to execute ${operation}; not retried to avoid a duplicate write`);
   }
 
   // ─── Search ───────────────────────────────────────────────────
@@ -519,38 +581,202 @@ export class XReaderClient {
 
   // ─── Write: media upload ──────────────────────────────────────
 
-  /**
-   * Upload a local image and return its media_id for attaching to a tweet.
-   * Uses the v1.1 simple upload (single request), which is fine for images
-   * up to ~5MB. Not for video/chunked uploads.
-   */
-  async uploadMedia(filePath: string): Promise<MediaUploadResult> {
+  /** Upload an image directly or a video through the chunked upload flow. */
+  async uploadMedia(
+    filePath: string,
+    options: MediaUploadOptions = {},
+  ): Promise<MediaUploadResult> {
+    this.requireWritePermission();
+    let media;
+    try {
+      media = await validateMediaFiles([filePath]);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    const [attachment] = media.items;
+
+    if (media.kind === 'video') {
+      return this.uploadVideoMedia(filePath, attachment.mimeType, options);
+    }
+
     try {
       const bytes = await readFile(filePath);
       const form = new FormData();
-      form.append('media', new Blob([bytes]), basename(filePath));
-      form.append('media_category', 'tweet_image');
-
-      // Don't set content-type — let fetch add the multipart boundary.
-      const headers = this.getHeaders();
-      delete headers['content-type'];
+      form.append(
+        'media',
+        new Blob([bytes], { type: attachment.mimeType }),
+        basename(filePath),
+      );
+      form.append(
+        'media_category',
+        attachment.mimeType === 'image/gif' ? 'tweet_gif' : 'tweet_image',
+      );
 
       const resp = await this.fetchWithTimeout(MEDIA_UPLOAD_URL, {
         method: 'POST',
-        headers,
+        headers: this.getUploadHeaders(),
         body: form,
       });
 
-      if (!resp.ok) {
-        const body = await resp.text().catch(() => '');
-        return { success: false, error: `Media upload HTTP ${resp.status}: ${body.slice(0, 200)}` };
-      }
+      const uploadError = await this.mediaUploadHttpError(resp, 'Media upload');
+      if (uploadError) return uploadError;
 
-      const data = (await resp.json()) as { media_id_string?: string; media_id?: number };
-      const mediaId = data.media_id_string ?? (data.media_id ? String(data.media_id) : undefined);
+      const mediaId = mediaIdFrom((await resp.json()) as MediaIdResponse);
       if (!mediaId) {
         return { success: false, error: 'Media upload returned no media_id' };
       }
+      return { success: true, mediaId };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async uploadVideoMedia(
+    filePath: string,
+    mimeType: string,
+    options: MediaUploadOptions,
+  ): Promise<MediaUploadResult> {
+    try {
+      const fileInfo = await stat(filePath);
+      if (!fileInfo.isFile() || fileInfo.size === 0) {
+        return { success: false, error: 'Video file must be a non-empty regular file' };
+      }
+
+      options.onProgress?.({ phase: 'initializing', totalBytes: fileInfo.size });
+
+      const initBody = new URLSearchParams({
+        command: 'INIT',
+        total_bytes: String(fileInfo.size),
+        media_type: mimeType,
+        media_category: 'tweet_video',
+      });
+      const initResponse = await this.fetchWithTimeout(MEDIA_UPLOAD_URL, {
+        method: 'POST',
+        headers: this.getUploadHeaders(),
+        body: initBody,
+      });
+      const initError = await this.mediaUploadHttpError(initResponse, 'Video upload INIT');
+      if (initError) return initError;
+
+      const mediaId = mediaIdFrom((await initResponse.json()) as MediaIdResponse);
+      if (!mediaId) {
+        return { success: false, error: 'Video upload INIT returned no media_id' };
+      }
+
+      const handle = await open(filePath, 'r');
+      try {
+        let offset = 0;
+        let segmentIndex = 0;
+        while (offset < fileInfo.size) {
+          const requestedBytes = Math.min(VIDEO_CHUNK_SIZE_BYTES, fileInfo.size - offset);
+          const buffer = Buffer.allocUnsafe(requestedBytes);
+          const { bytesRead } = await handle.read(buffer, 0, requestedBytes, offset);
+          if (bytesRead === 0) {
+            return { success: false, error: 'Video file ended before upload completed' };
+          }
+
+          const appendBody = new FormData();
+          appendBody.set('command', 'APPEND');
+          appendBody.set('media_id', mediaId);
+          appendBody.set('segment_index', String(segmentIndex));
+          appendBody.set(
+            'media',
+            new Blob([buffer.subarray(0, bytesRead)], { type: mimeType }),
+            basename(filePath),
+          );
+          const appendResponse = await this.fetchWithTimeout(MEDIA_UPLOAD_URL, {
+            method: 'POST',
+            headers: this.getUploadHeaders(),
+            body: appendBody,
+          });
+          const appendError = await this.mediaUploadHttpError(
+            appendResponse,
+            'Video upload APPEND',
+          );
+          if (appendError) return appendError;
+
+          offset += bytesRead;
+          options.onProgress?.({
+            phase: 'uploading',
+            uploadedBytes: offset,
+            totalBytes: fileInfo.size,
+          });
+          segmentIndex += 1;
+        }
+      } finally {
+        await handle.close();
+      }
+
+      const finalizeBody = new URLSearchParams({
+        command: 'FINALIZE',
+        media_id: mediaId,
+      });
+      const finalizeResponse = await this.fetchWithTimeout(MEDIA_UPLOAD_URL, {
+        method: 'POST',
+        headers: this.getUploadHeaders(),
+        body: finalizeBody,
+      });
+      const finalizeError = await this.mediaUploadHttpError(
+        finalizeResponse,
+        'Video upload FINALIZE',
+      );
+      if (finalizeError) return finalizeError;
+
+      const finalizeData = (await finalizeResponse.json()) as {
+        processing_info?: ProcessingInfo;
+      };
+      let processingInfo = finalizeData.processing_info;
+      if (processingInfo) {
+        options.onProgress?.({ phase: 'processing', state: processingInfo.state });
+      }
+
+      for (let attempt = 0; processingInfo; attempt += 1) {
+        if (processingInfo.state === 'succeeded') break;
+        if (processingInfo.state === 'failed') {
+          return {
+            success: false,
+            error:
+              processingInfo.error?.message ??
+              processingInfo.error?.name ??
+              'Video processing failed',
+          };
+        }
+        if (attempt >= MAX_VIDEO_PROCESSING_POLLS) {
+          return { success: false, error: 'Video processing timed out' };
+        }
+
+        const delaySeconds = Number.isFinite(processingInfo.check_after_secs)
+          ? Math.max(0, processingInfo.check_after_secs ?? 0)
+          : 2;
+        if (delaySeconds > 0) await this.sleep(delaySeconds * 1000);
+
+        const statusUrl = `${MEDIA_UPLOAD_URL}?${new URLSearchParams({
+          command: 'STATUS',
+          media_id: mediaId,
+        })}`;
+        const statusResponse = await this.fetchWithTimeout(statusUrl, {
+          method: 'GET',
+          headers: this.getUploadHeaders(),
+        });
+        const statusError = await this.mediaUploadHttpError(
+          statusResponse,
+          'Video upload STATUS',
+        );
+        if (statusError) return statusError;
+        const statusData = (await statusResponse.json()) as {
+          processing_info?: ProcessingInfo;
+        };
+        if (!statusData.processing_info) {
+          return {
+            success: false,
+            error: 'Video upload STATUS returned no processing_info while processing was pending',
+          };
+        }
+        processingInfo = statusData.processing_info;
+        options.onProgress?.({ phase: 'processing', state: processingInfo?.state });
+      }
+
+      options.onProgress?.({ phase: 'complete', totalBytes: fileInfo.size });
       return { success: true, mediaId };
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -567,6 +793,7 @@ export class XReaderClient {
     text: string,
     options: { replyToTweetId?: string; mediaIds?: string[] } = {},
   ): Promise<PostResult> {
+    this.requireWritePermission();
     const trimmed = text ?? '';
     const mediaIds = options.mediaIds ?? [];
     if (!trimmed.trim() && mediaIds.length === 0) {
@@ -574,7 +801,7 @@ export class XReaderClient {
     }
 
     try {
-      return await this.tryWithQueryIds('CreateTweet', [], async (qid) => {
+      return await this.executeMutationOnce('CreateTweet', async (qid) => {
         const variables: Record<string, unknown> = {
           tweet_text: trimmed,
           dark_request: false,

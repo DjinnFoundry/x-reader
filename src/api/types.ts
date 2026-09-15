@@ -60,6 +60,8 @@ export interface ClientOptions {
   cookies: Cookies;
   timeoutMs?: number;
   quoteDepth?: number;
+  /** Required for createTweet, reply, and image/video upload. Disabled by default. */
+  enableWrites?: boolean;
 }
 
 export interface ApiResult<T> {
@@ -106,6 +108,17 @@ export interface MediaUploadResult {
   success: boolean;
   error?: string;
   mediaId?: string;
+}
+
+export interface MediaUploadProgress {
+  phase: 'initializing' | 'uploading' | 'processing' | 'complete';
+  uploadedBytes?: number;
+  totalBytes?: number;
+  state?: string;
+}
+
+export interface MediaUploadOptions {
+  onProgress?: (progress: MediaUploadProgress) => void;
 }
 
 export interface QueryIdCache {
