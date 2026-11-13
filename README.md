@@ -19,7 +19,7 @@
 - **Look up** user profiles by handle
 - **Publish** an original post or reply with up to 4 photos, 1 GIF, or 1 video
 - **Stream video uploads** in 5 MiB chunks and wait for X processing to finish
-- **Guard writes twice**: CLI permission flags plus an opt-in client API
+- **Opt-in client API**: library users explicitly enable write operations
 - **JSON output** for piping into other tools (`jq`, scripts, etc.)
 - **Auto-discovers** X's rotating GraphQL query IDs (no manual updates needed)
 - **Zero config** beyond two browser cookies
@@ -124,25 +124,23 @@ x-reader replies https://x.com/user/status/1234567890 --format json
 
 ### Publish an original post (write)
 ```bash
-X_READER_ENABLE_POST=true x-reader post "A deliberately approved post"
-X_READER_ENABLE_POST=true x-reader post "An approved image post" --media cover.png
-X_READER_ENABLE_POST=true x-reader post "An approved video post" --media clip.mp4
+x-reader post "Hello world!"
+x-reader tweet "Hello world!"                        # alias for post
+x-reader post "An image post" --media cover.png
+x-reader post "A video post" --media clip.mp4
+x-reader post "Hello world!" --format json            # prints the new tweet id/url
 ```
 
 ### Post a reply (write)
 ```bash
-X_READER_ENABLE_REPLY=true x-reader reply 1234567890 "Thanks for sharing!"
-X_READER_ENABLE_REPLY=true x-reader reply https://x.com/user/status/1234567890 "Here's some context" --media chart.png
-X_READER_ENABLE_REPLY=true x-reader reply 1234567890 "Done" --format json
+x-reader reply 1234567890 "Thanks for sharing!"
+x-reader reply https://x.com/user/status/1234567890 "Here's some context" --media chart.png
+x-reader reply 1234567890 "Done" --format json
 ```
 
-`post` and `reply` are disabled by default. Prefer an operation-specific variable on the same command invocation:
+`post` (alias `tweet`) and `reply` publish immediately using your configured account. No additional environment variable is required. For an image-only post, pass an empty text argument: `x-reader post "" --media photo.png`.
 
-- `X_READER_ENABLE_POST=true` enables only `post`.
-- `X_READER_ENABLE_REPLY=true` enables only `reply`.
-- `X_READER_ENABLE_WRITE=true` enables both and should be used only when that wider scope is intentional.
-
-Do not export these variables globally. Enabling the capability is not approval for a particular remote write.
+Library callers must explicitly construct `XReaderClient` with `enableWrites: true` to publish or upload media. Read-only clients remain the default.
 
 Media rules:
 
@@ -152,7 +150,7 @@ Media rules:
 - Every attachment must exist, be a regular non-empty file, and pass validation before the first upload starts.
 - Video is streamed from disk in 5 MiB segments using `INIT → APPEND → FINALIZE → STATUS`; the CLI reports upload and processing progress on stderr.
 - X enforces account-specific upload and post limits separately. MP4 with H.264 video and AAC audio is the safest production target.
-- Post/reply mutations are sent once and are never automatically retried after an ambiguous response, avoiding accidental duplicates.
+- Post/reply mutations are retried only when X reports an unknown endpoint (404). Other failures, including ambiguous responses, are not retried, avoiding accidental duplicates.
 - Threads, polls, likes, retweets, follows, and deletes are not implemented.
 
 See X's [chunked media upload](https://docs.x.com/x-api/media/quickstart/media-upload-chunked) and [media best practices](https://docs.x.com/x-api/media/quickstart/best-practices). `x-reader` uses X's undocumented web/cookie authentication and legacy upload endpoint, so X can change compatibility without notice.
@@ -226,7 +224,7 @@ console.log(posted.url);
 
 ## How it works
 
-X uses GraphQL endpoints with rotating query IDs embedded in their client-side JavaScript bundles. x-reader auto-discovers these IDs by scraping the JS bundles, caching them locally with a 24-hour TTL. No manual ID updates needed.
+X uses GraphQL endpoints with rotating query IDs embedded in their client-side JavaScript bundles. x-reader auto-discovers these IDs using your signed-in session, caching them locally with a 24-hour TTL. Session cookies are sent only to X pages; public JavaScript bundles are downloaded without credentials. No manual ID updates needed.
 
 If you get 404 errors, force a refresh:
 ```bash

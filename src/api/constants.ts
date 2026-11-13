@@ -29,7 +29,7 @@ export const DEFAULT_QUERY_IDS: Record<string, string> = {
   HomeLatestTimeline: 'iOEZpOdfekFsxSlPQCQtPg',
   GenericTimelineById: 'uGSr7alSjR9v6QJAIaqSKQ',
   AboutAccountQuery: 'zs_jFPFT78rBpXv9Z3U2YQ',
-  CreateTweet: 'znk9jVDBQAaJvC96UgZ3Jw',
+  CreateTweet: 'l4hk8uVGvR-a8kzQ4nOhPA',
 };
 
 /** Operation names we care about for query ID discovery */
@@ -37,6 +37,7 @@ export const DISCOVERY_OPERATIONS = Object.keys(DEFAULT_QUERY_IDS);
 
 /** Pages to scrape for JS bundle URLs */
 export const DISCOVERY_PAGES = [
+  'https://x.com/home',
   'https://x.com/?lang=en',
   'https://x.com/explore',
   'https://x.com/notifications',

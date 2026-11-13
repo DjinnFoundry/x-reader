@@ -1,4 +1,4 @@
-/** x-reader — Twitter/X API client (read + reply) */
+/** x-reader: Twitter/X API client (read, post and reply) */
 
 export { XReaderClient } from './api/client.js';
 export type {

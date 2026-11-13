@@ -1,7 +1,7 @@
 {
   "name": "x-reader",
   "version": "0.4.0",
-  "description": "Twitter/X CLI. Read X and publish explicitly enabled posts or replies with images or video.",
+  "description": "Twitter/X CLI. Read X and publish posts or replies with images or video.",
   "type": "module",
   "bin": {
     "x-reader": "dist/cli/index.js"

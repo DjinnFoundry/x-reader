@@ -1,5 +1,5 @@
 /**
- * XReader API Client — Twitter/X GraphQL client with opt-in writes.
+ * XReader API Client: Twitter/X GraphQL client with opt-in writes.
  *
  * Provides read operations plus explicitly enabled original posts and replies.
  * Does NOT provide likes, retweets, follows, or destructive operations.
@@ -186,7 +186,7 @@ export class XReaderClient {
 
     // If we got 404s, refresh and retry
     if (had404) {
-      await refreshQueryIds({ force: true });
+      await refreshQueryIds({ force: true, cookieHeader: this.cookieHeader });
       const freshIds = await this.getQueryIds(operation);
       for (const qid of freshIds) {
         const { result, error } = await doRequest(qid);
@@ -196,19 +196,6 @@ export class XReaderClient {
     }
 
     throw new Error(lastError || `Failed to execute ${operation}`);
-  }
-
-  /** Execute a mutation once; retrying an ambiguous response could duplicate the write. */
-  private async executeMutationOnce<T>(
-    operation: string,
-    doRequest: (queryId: string) => Promise<{ result: T | null; error?: string }>,
-  ): Promise<T> {
-    const [queryId] = await this.getQueryIds(operation);
-    if (!queryId) throw new Error(`No query ID available for ${operation}`);
-
-    const { result, error } = await doRequest(queryId);
-    if (result !== null) return result;
-    throw new Error(error || `Failed to execute ${operation}; not retried to avoid a duplicate write`);
   }
 
   // ─── Search ───────────────────────────────────────────────────
@@ -801,7 +788,7 @@ export class XReaderClient {
     }
 
     try {
-      return await this.executeMutationOnce('CreateTweet', async (qid) => {
+      return await this.tryWithQueryIds('CreateTweet', [], async (qid) => {
         const variables: Record<string, unknown> = {
           tweet_text: trimmed,
           dark_request: false,
@@ -826,21 +813,22 @@ export class XReaderClient {
           body: JSON.stringify({ variables, features: createTweetFeatures(), queryId: qid }),
         });
 
+        // Only an unknown endpoint is safe to retry for a write operation.
         if (resp.status === 404) return { result: null, status: 404 };
         if (!resp.ok) {
           const body = await resp.text();
-          return { result: null, status: resp.status, error: `HTTP ${resp.status}: ${body.slice(0, 200)}` };
+          throw new Error(`HTTP ${resp.status}: ${body.slice(0, 200)}`);
         }
 
         const data = await resp.json();
         if (data.errors?.length) {
-          return { result: null, status: 200, error: data.errors.map((e: any) => e.message).join(', ') };
+          throw new Error(data.errors.map((e: any) => e.message).join(', '));
         }
 
         const result = data.data?.create_tweet?.tweet_results?.result;
         const id: string | undefined = result?.rest_id;
         if (!id) {
-          return { result: null, status: 200, error: 'CreateTweet returned no tweet id' };
+          throw new Error('CreateTweet returned no tweet id; check your timeline before retrying');
         }
         const username: string =
           result?.core?.user_results?.result?.legacy?.screen_name ??

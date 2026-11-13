@@ -91,8 +91,9 @@ async function saveCache(path: string, cache: QueryIdCache): Promise<void> {
 
 // ─── Bundle discovery ───────────────────────────────────────────
 
-async function fetchText(url: string): Promise<string> {
-  const resp = await fetch(url, { headers: FETCH_HEADERS });
+async function fetchText(url: string, cookieHeader?: string): Promise<string> {
+  const headers = { ...FETCH_HEADERS, ...(cookieHeader ? { cookie: cookieHeader } : {}) };
+  const resp = await fetch(url, { headers });
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
     throw new Error(`HTTP ${resp.status} for ${url}: ${body.slice(0, 120)}`);
@@ -100,11 +101,12 @@ async function fetchText(url: string): Promise<string> {
   return resp.text();
 }
 
-async function discoverBundleUrls(): Promise<string[]> {
+async function discoverBundleUrls(cookieHeader?: string): Promise<string[]> {
   const found = new Set<string>();
   for (const page of DISCOVERY_PAGES) {
     try {
-      const html = await fetchText(page);
+      // Logged-out pages may serve a different app without GraphQL operation IDs.
+      const html = await fetchText(page, cookieHeader);
       for (const match of html.matchAll(BUNDLE_URL_REGEX)) {
         found.add(match[0]);
       }
@@ -208,7 +210,7 @@ export async function getQueryId(operation: string): Promise<string> {
  * Saves results to disk cache.
  */
 export async function refreshQueryIds(
-  options: { force?: boolean } = {},
+  options: { force?: boolean; cookieHeader?: string } = {},
 ): Promise<SnapshotInfo | null> {
   const cachePath = getCachePath();
 
@@ -219,7 +221,7 @@ export async function refreshQueryIds(
   }
 
   const wantedOps = new Set(DISCOVERY_OPERATIONS);
-  const bundleUrls = await discoverBundleUrls();
+  const bundleUrls = await discoverBundleUrls(options.cookieHeader);
   const found = await scanBundles(bundleUrls, wantedOps);
 
   if (found.size === 0) {

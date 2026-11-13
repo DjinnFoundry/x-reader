@@ -36,11 +36,13 @@ describe('x-reader CLI', () => {
     assert.ok(output.includes('--media'));
   });
 
-  it('should show post help', () => {
-    const output = execCli(['post', '--help']);
-    assert.ok(output.includes('text'));
-    assert.ok(output.includes('--media'));
-    assert.ok(output.includes('--format'));
+  it('should show post and tweet help', () => {
+    for (const command of ['post', 'tweet']) {
+      const output = execCli([command, '--help']);
+      assert.ok(output.includes('text'));
+      assert.ok(output.includes('--media'));
+      assert.ok(output.includes('--format'));
+    }
   });
 
   it('should show search help', () => {
@@ -69,38 +71,12 @@ describe('x-reader CLI', () => {
 
   it('should only allow post and reply as write commands (no like/retweet/follow)', () => {
     const output = execCli(['--help']);
-    assert.ok(output.includes('  post '));
+    assert.ok(output.includes('post|tweet'));
     assert.ok(output.includes('  reply '));
     assert.ok(!output.includes('  like '));
     assert.ok(!output.includes('  retweet '));
     assert.ok(!output.includes('  follow '));
     assert.ok(!output.includes('  unfollow '));
-  });
-
-  it('should keep reply disabled unless explicitly enabled', () => {
-    const result = spawnSync(process.execPath, [CLI_PATH, 'reply', '1234567890', 'test'], {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        X_READER_ENABLE_WRITE: '',
-        X_READER_ENABLE_REPLY: '',
-      },
-    });
-    assert.notStrictEqual(result.status, 0);
-    assert.match(result.stderr, /Reply is disabled/);
-  });
-
-  it('should keep posts disabled unless explicitly enabled', () => {
-    const result = spawnSync(process.execPath, [CLI_PATH, 'post', 'test'], {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        X_READER_ENABLE_WRITE: '',
-        X_READER_ENABLE_POST: '',
-      },
-    });
-    assert.notStrictEqual(result.status, 0);
-    assert.match(result.stderr, /Post is disabled/);
   });
 
   it('should reject mixed video and image attachments before upload', () => {

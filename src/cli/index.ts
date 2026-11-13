@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
 /**
- * x-reader CLI — Twitter/X client (read + post/reply)
+ * x-reader CLI: Twitter/X client (read, post and reply)
  *
  * Commands:
  *   search <query>              Search tweets
  *   user-tweets <handle>        Get tweets from a user
  *   read <tweet-id-or-url>      Read a single tweet
  *   replies <tweet-id-or-url>   Get replies to a tweet
- *   post <text>                 Publish an original post (write operation)
+ *   post <text>                 Publish an original post (alias: tweet)
  *   reply <tweet> <text>        Post a reply (write operation)
  *   bookmarks                   Get your bookmarks
  *   user-lookup <handle>        Look up user info
@@ -30,7 +30,7 @@ const program = new Command();
 
 program
   .name('x-reader')
-  .description('Twitter/X CLI — read tweets and publish posts/replies')
+  .description('Twitter/X CLI: read tweets and publish posts/replies')
   .version(VERSION)
   .option('--auth-token <token>', 'Twitter auth_token cookie')
   .option('--ct0 <token>', 'Twitter ct0 cookie')
@@ -41,23 +41,6 @@ program
 /** Accumulate repeatable option values (e.g. --media a.png --media b.png). */
 function collect(value: string, previous: string[]): string[] {
   return previous.concat([value]);
-}
-
-type WriteOperation = 'Post' | 'Reply';
-
-function requireWritePermission(operation: WriteOperation): void {
-  const specificFlag = operation === 'Post' ? 'X_READER_ENABLE_POST' : 'X_READER_ENABLE_REPLY';
-  if (
-    process.env.X_READER_ENABLE_WRITE === 'true' ||
-    process.env[specificFlag] === 'true'
-  ) {
-    return;
-  }
-  console.error(
-    `❌ ${operation} is disabled. Set ${specificFlag}=true for only this operation, ` +
-      'or X_READER_ENABLE_WRITE=true for an explicitly approved write action.',
-  );
-  process.exit(1);
 }
 
 async function createClient(opts: any, enableWrites = false): Promise<XReaderClient> {
@@ -108,6 +91,33 @@ async function uploadMediaFiles(client: XReaderClient, mediaPaths: string[]): Pr
     mediaIds.push(result.mediaId);
   }
   return mediaIds;
+}
+
+interface PublishOptions {
+  media?: string[];
+  format?: string;
+}
+
+function fail(message: string): never {
+  console.error(`❌ ${message}`);
+  process.exit(1);
+}
+
+async function publish(text: string, options: PublishOptions, replyToTweetId?: string): Promise<void> {
+  const paths = await requireValidMediaPaths(options.media ?? []);
+  if (!text.trim() && paths.length === 0) fail('Cannot post an empty tweet');
+  const client = await createClient(program.opts(), true);
+  const mediaIds = await uploadMediaFiles(client, paths);
+  const result = replyToTweetId
+    ? await client.reply(replyToTweetId, text, { mediaIds })
+    : await client.createTweet(text, { mediaIds });
+  if (!result.success) fail(`${replyToTweetId ? 'Reply' : 'Post'} failed: ${result.error}`);
+  if (options.format === 'json') {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(`✅ ${replyToTweetId ? 'Reply' : 'Tweet'} posted`);
+    console.log(`🔗 ${result.url}`);
+  }
 }
 
 // ─── search ─────────────────────────────────────────────────────
@@ -224,29 +234,12 @@ program
 
 program
   .command('post <text>')
+  .alias('tweet')
   .description('Publish an original post (write operation)')
   .option('--media <path>', 'Attach up to 4 images or 1 video', collect, [])
   .option('--format <type>', 'Output format: json or text', 'text')
-  .action(async (text: string, cmdOpts: any) => {
-    requireWritePermission('Post');
-    const mediaPaths = await requireValidMediaPaths(cmdOpts.media ?? []);
-
-    const opts = program.opts();
-    const client = await createClient(opts, true);
-    const mediaIds = await uploadMediaFiles(client, mediaPaths);
-    const result = await client.createTweet(text, { mediaIds });
-
-    if (!result.success) {
-      console.error(`❌ Post failed: ${result.error}`);
-      process.exit(1);
-    }
-
-    if (cmdOpts.format === 'json') {
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      console.log('✅ Post published');
-      console.log(`🔗 ${result.url}`);
-    }
+  .action(async (text: string, options: PublishOptions) => {
+    await publish(text, options);
   });
 
 // ─── reply ──────────────────────────────────────────────────────
@@ -257,32 +250,11 @@ program
   .option('--media <path>', 'Attach up to 4 images or 1 video', collect, [])
   .option('--format <type>', 'Output format: json or text', 'text')
   .action(async (input: string, text: string, cmdOpts: any) => {
-    requireWritePermission('Reply');
-    const mediaPaths = await requireValidMediaPaths(cmdOpts.media ?? []);
-
-    const opts = program.opts();
-    const client = await createClient(opts, true);
-
     let tweetId: string;
     try { tweetId = extractTweetId(input); } catch (e) {
-      console.error(`❌ ${e instanceof Error ? e.message : e}`);
-      process.exit(1);
+      fail(e instanceof Error ? e.message : String(e));
     }
-
-    const mediaIds = await uploadMediaFiles(client, mediaPaths);
-
-    const result = await client.reply(tweetId, text, { mediaIds });
-    if (!result.success) {
-      console.error(`❌ Reply failed: ${result.error}`);
-      process.exit(1);
-    }
-
-    if (cmdOpts.format === 'json') {
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      console.log(`✅ Reply posted`);
-      console.log(`🔗 ${result.url}`);
-    }
+    await publish(text, cmdOpts, tweetId);
   });
 
 // ─── bookmarks ──────────────────────────────────────────────────
@@ -343,7 +315,11 @@ program
   .action(async (cmdOpts: any) => {
     if (cmdOpts.refresh) {
       console.error('ℹ️  Refreshing query IDs from x.com JS bundles...');
-      await refreshQueryIds({ force: true });
+      const opts = program.opts();
+      const { cookies } = await resolveCookies({ authToken: opts.authToken, ct0: opts.ct0 });
+      const cookieHeader = cookies.cookieHeader || (cookies.authToken && cookies.ct0
+        ? `auth_token=${cookies.authToken}; ct0=${cookies.ct0}` : undefined);
+      await refreshQueryIds({ force: true, cookieHeader });
       console.error('✅ Done.');
     }
 

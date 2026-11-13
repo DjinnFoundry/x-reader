@@ -189,6 +189,17 @@ export function createTweetFeatures(): Record<string, boolean> {
     responsive_web_enhance_cards_enabled: false,
     rweb_video_screen_enabled: false,
     responsive_web_profile_redirect_enabled: false,
+    rweb_cashtags_composer_attachment_enabled: false,
+    rweb_sports_post_context_enabled: false,
+    x_elections_post_context_enabled: false,
+    responsive_web_grok_annotations_enabled: false,
+    rweb_conversational_replies_downvote_enabled: false,
+    content_disclosure_indicator_enabled: false,
+    content_disclosure_ai_generated_indicator_enabled: false,
+    post_ctas_fetch_enabled: false,
+    responsive_web_nested_quote_preview_enabled: false,
+    rweb_cashtags_enabled: false,
+    responsive_web_made_on_x_label_enabled: false,
   };
 }
 
