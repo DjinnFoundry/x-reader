@@ -45,9 +45,8 @@ npm install -g x-reader
 ```bash
 git clone https://github.com/DjinnFoundry/x-reader.git
 cd x-reader
-npm install
-npm run build
-npm link
+pnpm install   # also builds dist/
+pnpm link
 ```
 
 ## Quick start
