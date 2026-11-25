@@ -1,0 +1,7 @@
+# Four-day quarantine (in minutes) for every version of every package. pnpm
+# enforces it strictly and checks the lockfile against it on every install.
+minimumReleaseAge: 5760
+
+# Packages allowed to run install scripts: none. pnpm fails when a new one
+# shows up, so it is reviewed and added here by hand.
+allowBuilds: {}
