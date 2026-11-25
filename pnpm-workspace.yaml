@@ -5,3 +5,7 @@ minimumReleaseAge: 5760
 # Packages allowed to run install scripts: none. pnpm fails when a new one
 # shows up, so it is reviewed and added here by hand.
 allowBuilds: {}
+overrides:
+  '@esbuild-kit/core-utils>esbuild': 0.25.12
+  'sharp@<0.35.5': 0.35.5
+  'tar@<7.5.23': 7.5.23
